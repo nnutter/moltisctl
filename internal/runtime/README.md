@@ -5,13 +5,17 @@
 Commands resolve through `PATH` and run without a shell.
 `Ensure` creates a stopped container.
 Call `Start` separately to run it.
+`Stop` gracefully stops an owned container without deleting it or its network.
+It succeeds only after observing the same managed container stopped, even when the native stop command reports an error.
+Missing containers and uncertain stop results fail.
+Already-stopped owned containers are unchanged.
 Names can be instance names or complete `moltisctl-` names.
 
 ## Resource safety
 
 The adapter records the requested image, home, and port in `io.moltisctl.image`, `io.moltisctl.home`, and `io.moltisctl.port` labels.
 It also sets `io.moltisctl.managed=true`.
-`Ensure`, `Start`, and `Remove` check those labels against the actual runtime configuration before they reuse or modify a container.
+`Ensure`, `Start`, `Stop`, and `Remove` check those labels against the actual runtime configuration before they reuse or modify a container.
 Containers with missing labels require manual migration or removal.
 The adapter does not adopt them automatically.
 
@@ -30,7 +34,7 @@ Do not concurrently replace Apple containers outside moltisctl.
 
 `Ensure` creates the native network `moltisctl-NAME` before it creates the container.
 The network has `io.moltisctl.managed=true` and `io.moltisctl.instance=moltisctl-NAME` labels.
-The adapter checks network ownership before reuse, start, or removal.
+The adapter checks network ownership before reuse, start, stop, or removal.
 It refuses foreign networks and networks with a different instance label without changing them.
 Containers must use only their matching network, not the shared default network.
 Apple stopped containers must have the matching configured attachment.

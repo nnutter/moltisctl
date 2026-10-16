@@ -145,10 +145,23 @@ The source can be running or retained after deletion.
 Do not copy its active database without the associated WAL files.
 The importer does not run Shelley, modify its saved models, or contact a model provider.
 
-The destination must be new or deleted, with no leftover container.
-For an existing Moltis instance, run `moltisctl delete NAME` first.
-Do not delete the source Shelley instance merely to import its models.
-Import leaves the Moltis instance inactive until an explicit `create`.
+A running Moltis destination is stopped briefly, imported, restarted, and checked for HTTP readiness.
+There is no need to delete either instance.
+The container, network, lifecycle record, startup files, and Tailscale Service remain in place.
+Access is briefly interrupted, and conversations, terminals, or tool processes can stop.
+Finish any pending instance update before importing.
+An active record with a missing container requires `create` to repair it before import.
+
+The importer holds the lifecycle lock through stopping, writing, and recovery so scheduled reconciliation cannot interfere.
+After a stop attempt, it also attempts restoration on import failure or cancellation, using a separate 45-second recovery timeout.
+Import and recovery failures are both reported when both occur.
+If recovery fails, inspect the runtime logs and repeat `create NAME` to restore an active instance.
+Existing startup recovery remains enabled.
+
+Already-stopped instances remain stopped by the import, although normal scheduled recovery can later start an active instance.
+New or deleted instances remain inactive until an explicit `create`.
+Deleted records with leftover containers still require `delete` to finish cleanup.
+The offline-only restriction for `models configure` remains unchanged.
 
 Models with the same saved endpoint, API format, and key become one Moltis provider with a deduplicated model list.
 Different credentials or API formats remain separate providers.
@@ -161,7 +174,9 @@ Imported names use the prefix `custom-shelleyctl-` and an identifier derived fro
 They do not contain API keys or key-derived fingerprints.
 Repeated imports of an unchanged source merge without duplicates.
 Matching destination connections retain their tuning and additional model names.
-Conflicting endpoints, credentials, API formats, or disabled providers cause the entire import to fail before changing destination configuration or lifecycle state.
+Conflicting endpoints, credentials, API formats, or disabled providers cause the entire import to fail without publishing imported settings or changing lifecycle state.
+A running destination still restarts after a conflict.
+Moltis itself can rewrite its configuration during shutdown or startup, independently of the import.
 For deliberate credential replacement, use `models configure --provider IMPORTED_NAME` while the Moltis instance is inactive.
 Removing or regrouping source models can produce different provider names, and import never deletes old destination providers.
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,9 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/nnutter/moltisctl/image"
+	"github.com/nnutter/moltisctl/internal/instance"
 	"github.com/nnutter/moltisctl/internal/models"
 	cr "github.com/nnutter/moltisctl/internal/runtime"
 )
@@ -44,22 +45,33 @@ func TestNativeEmbeddedContext(t *testing.T) {
 		require.NoError(t, err, "%s", output)
 	})
 	require.NoError(t, adapter.Build(t.Context(), tag, dir))
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	stateDir := t.TempDir()
+	app, err := instance.New(&instance.Options{StateDir: stateDir, Image: tag})
 	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	require.NoError(t, listener.Close())
-	home := t.TempDir()
-	// Validate generated provider TOML against the pinned Moltis binary.
-	require.NoError(t, models.Configure(home, models.Config{
+	// Allocate the same persistent home and port that the CLI would use.
+	require.NoError(t, app.ConfigureModels(t.Context(), id, models.Config{
 		Provider: "custom-native", APIURL: "https://provider.invalid/v1", APIType: "openai-responses",
 		APIKey: "native-fixture-key", Names: []string{"native-model"},
 	}))
-	importShelleyFixture(t, home)
+	stateData, err := os.ReadFile(filepath.Join(stateDir, "state.json"))
+	require.NoError(t, err)
+	var saved struct {
+		Instances map[string]struct {
+			Port int `json:"port"`
+		} `json:"instances"`
+	}
+	require.NoError(t, json.Unmarshal(stateData, &saved))
+	port := saved.Instances[id].Port
+	home := filepath.Join(stateDir, "instances", id, "home")
 	spec := cr.Spec{Name: id, Image: tag, Home: home, Port: port}
 	for generation := range 2 {
 		require.NoError(t, adapter.Ensure(t.Context(), spec))
 		require.NoError(t, adapter.Start(t.Context(), id))
 		waitHealthy(t, port)
+		if generation == 0 {
+			importIntoRunningInstance(t, app, adapter, stateDir, spec)
+			waitHealthy(t, port)
+		}
 		output, err := exec.CommandContext(t.Context(), adapter.Binary(), "exec", "moltisctl-"+id,
 			"/usr/local/bin/moltis-entrypoint", "sh", "-ec", `
 			test "$(id -u)" != 0
@@ -73,7 +85,17 @@ func TestNativeEmbeddedContext(t *testing.T) {
 		config := filepath.Join(home, ".config", "moltis", "moltis.toml")
 		data, err := os.ReadFile(config)
 		require.NoError(t, err)
-		require.Contains(t, string(data), `backend = "restricted-host"`)
+		var configDoc struct {
+			Tools struct {
+				Exec struct {
+					Sandbox struct {
+						Backend string `toml:"backend"`
+					} `toml:"sandbox"`
+				} `toml:"exec"`
+			} `toml:"tools"`
+		}
+		require.NoError(t, toml.Unmarshal(data, &configDoc))
+		require.Equal(t, "restricted-host", configDoc.Tools.Exec.Sandbox.Backend)
 		if generation == 0 {
 			// User-owned config and data must survive container replacement.
 			require.NoError(t, os.WriteFile(filepath.Join(home, ".moltis", "retention-check"), []byte("retained"), 0o600))

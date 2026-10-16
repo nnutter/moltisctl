@@ -49,16 +49,28 @@ SQL and parsing errors do not include saved credential values in user-visible di
 
 The importer validates the complete source before modifying the destination.
 It merges the provider batch in memory and publishes one private TOML file through atomic replacement.
-A failed conflict check leaves the prior TOML bytes and lifecycle record unchanged.
+A failed conflict check prevents the importer from publishing TOML, and existing lifecycle records remain unchanged.
+For a running destination, Moltis can still rewrite its own TOML during shutdown or startup.
 Configuration publication and lifecycle-record publication are separate filesystem operations, not one transaction.
 An I/O failure after configuration publication can therefore leave imported TOML without a new lifecycle record, and retrying the command is safe.
-Imports never start the destination or change host startup or Tailscale configuration.
+An import pauses a previously running destination and attempts to restart it after writing, failure, or cancellation.
+The lifecycle lock remains held through restart and HTTP readiness, preventing concurrent scheduled reconciliation.
+Restoration uses a separate 45-second context that does not inherit the operation's cancellation.
+A native stop must confirm the owned container is stopped before the importer can write.
+Stop or import failures and restoration failures are reported together when necessary.
+
+Imports preserve the container, network, desired state, host startup files, and Tailscale configuration.
+New, deleted, and already-stopped destinations are not started by import.
+An active stopped instance can still resume later through its existing scheduler.
+Pending updates must finish first, and missing active containers require explicit lifecycle recovery before import.
+The `models configure` command still requires a new or deleted destination with no leftover container.
 
 ## Automated checks
 
 `mise run all` runs the race-enabled Go suite, vet, staticcheck, errcheck, testifylint, and whitespace checks.
 The suite covers lifecycle recovery, ownership conflicts, runtime protocols, startup rendering, Tailscale protocols, offline provider setup, credential input, and Shelley imports.
 Import tests exercise real SQLite databases with committed WAL entries, source retention, path escaping, source selection, unsupported models, grouping, retries, and late batch conflicts.
+Active-import tests also cover stop failures, cancellation, independent restoration contexts, joined errors, lock retention through restart, pending updates, and foreign resources.
 Tests use recorded native-command responses for host integration paths and do not require a live tailnet.
 
 `mise run test-native` builds the embedded context, then uses the real native runtime without installing startup files or configuring Tailscale.
@@ -68,6 +80,7 @@ It checks:
 - Setup-required authentication, with no local-access bypass.
 - Non-root execution, libc user lookup, and absence of sudo and a host Docker socket.
 - Manually configured and Shelley-imported provider TOML accepted by the pinned Moltis binary.
+- The real application's stop/import/restart path, retained container identity and lifecycle state, and recovered HTTP health.
 - Configuration and data-file retention across container removal and replacement.
 
 The native test uses unique container and image names and temporary homes.
@@ -77,7 +90,8 @@ It does not contact a paid model provider.
 ## Results and remaining acceptance checks
 
 During the port, the Go suite and static checks passed on macOS ARM64.
-The native Apple-container image test also passed, including replacement with retained home files and manually configured and Shelley-imported provider settings.
+The native Apple-container image test also passed, including active imports with stop/restart, retained lifecycle state, and replacement with retained home files.
+The pinned Moltis binary accepted both manually configured and Shelley-imported provider settings.
 The import also passed CGO-disabled model tests and a CGO-disabled Linux AMD64 cross-build.
 The cross-build does not establish native Linux runtime acceptance.
 The reference tool's live-host acceptance results do not establish acceptance for Moltis.
