@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/nnutter/moltisctl/image"
+	"github.com/nnutter/moltisctl/internal/models"
 	cr "github.com/nnutter/moltisctl/internal/runtime"
 )
 
@@ -48,6 +49,11 @@ func TestNativeEmbeddedContext(t *testing.T) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	require.NoError(t, listener.Close())
 	home := t.TempDir()
+	// Validate generated provider TOML against the pinned Moltis binary.
+	require.NoError(t, models.Configure(home, models.Config{
+		Provider: "custom-native", APIURL: "https://provider.invalid/v1", APIType: "openai-responses",
+		APIKey: "native-fixture-key", Names: []string{"native-model"},
+	}))
 	spec := cr.Spec{Name: id, Image: tag, Home: home, Port: port}
 	for generation := range 2 {
 		require.NoError(t, adapter.Ensure(t.Context(), spec))
@@ -91,12 +97,12 @@ func waitHealthy(t *testing.T, port int) {
 		if err != nil {
 			return false
 		}
-		defer resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
+		closeErr := resp.Body.Close()
+		return resp.StatusCode == http.StatusOK && closeErr == nil
 	}, 60*time.Second, 250*time.Millisecond)
 	resp, err := client.Get(url + "/api/auth/status")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	data, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/nnutter/moltisctl/image"
+	"github.com/nnutter/moltisctl/internal/models"
 	cr "github.com/nnutter/moltisctl/internal/runtime"
 	"github.com/nnutter/moltisctl/internal/startup"
 	"github.com/nnutter/moltisctl/internal/tailscale"
@@ -100,6 +101,60 @@ func (a *Application) Build(ctx context.Context) (result error) {
 	}
 	defer func() { result = errors.Join(result, os.RemoveAll(dir)) }()
 	return a.containers.Build(ctx, a.opts.Image, dir)
+}
+
+// ConfigureModels prepares an offline instance, without starting or exposing it.
+// Requiring a deleted record prevents races with Moltis and scheduled recovery.
+func (a *Application) ConfigureModels(ctx context.Context, name string, config models.Config) (result error) {
+	if !namePattern.MatchString(name) {
+		return errors.New("invalid instance name")
+	}
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	if err := a.prepare(); err != nil {
+		return err
+	}
+	lock, err := a.lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { result = errors.Join(result, lock.Close()) }()
+	s, err := a.load()
+	if err != nil {
+		return err
+	}
+	r, exists := s.Instances[name]
+	if exists && (r.Desired || r.PendingImage != "") {
+		return errors.New("delete the instance before configuring models, or use Moltis's authenticated UI for live changes")
+	}
+	if !exists {
+		port, err := allocatePort(s)
+		if err != nil {
+			return err
+		}
+		r = record{Name: name, Image: a.opts.Image, Port: port}
+	}
+	if err := a.containers.Check(ctx, a.recordSpec(r)); err != nil {
+		return err
+	}
+	status, err := a.containers.Inspect(ctx, name)
+	if err != nil {
+		return err
+	}
+	if status.Exists {
+		return errors.New("repeat delete to remove the container before configuring models")
+	}
+	home := filepath.Join(a.opts.StateDir, "instances", name, "home")
+	if err := os.MkdirAll(filepath.Dir(home), 0o700); err != nil {
+		return err
+	}
+	// Persist the allocation without credentials or a desired-running intent.
+	s.Instances[name] = r
+	if err := a.save(s); err != nil {
+		return err
+	}
+	return models.Configure(home, config)
 }
 
 // Create records intent before side effects. Failures retain state for retry.

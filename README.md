@@ -56,6 +56,45 @@ This backend is not a per-command container sandbox and does not isolate tools f
 Container isolation does not protect against hostile users or kernel exploits.
 App publishing and the Shelley-specific voice helpers are not included.
 
+## Preconfigure a custom provider
+
+Configure an OpenAI-compatible provider before the first `create`:
+
+```sh
+moltisctl models configure alice \
+  --api-url https://api.openai.com/v1 \
+  --api-key-file ~/.config/moltisctl/provider-key \
+  --model MODEL_A \
+  --model MODEL_B
+moltisctl create alice
+```
+
+Use `--api-key-file -` to read one nonempty key line from stdin, limited to 64 KiB.
+There is no literal API-key flag.
+Use `--api-type openai` for Chat Completions or `openai-responses` for Responses (the default).
+Use the provider's base URL, not its `/chat/completions` or `/responses` endpoint.
+Use HTTPS for remote endpoints to avoid transmitting credentials without encryption.
+Other provider protocols and OAuth require Moltis's UI.
+
+The default provider name is `custom-moltisctl`.
+Use `--provider custom-NAME` to configure another custom provider.
+Repeated configuration updates that provider's endpoint, key, wire format, and preferred model list while preserving unrelated settings.
+An existing provider allowlist also gains the selected provider.
+New provider entries disable dynamic model discovery and use the explicit model list.
+The operation does not select a default model or send a provider test request.
+Moltis can contact the provider after startup.
+
+For an existing instance, run `delete`, configure its retained home, then run `create` again.
+The command refuses active records and leftover containers, even if they are currently stopped.
+This prevents concurrent writes from Moltis or scheduled recovery.
+Alternatively, use Moltis's authenticated UI for live changes.
+A new preconfigured record remains inactive until an explicit `create`.
+
+The command rewrites `moltis.toml`, preserving unrelated values but not comments or formatting.
+It stores provider keys in that file with mode 0600, not in lifecycle records or launchers.
+Tools in the instance can read those keys.
+Keep key source files private and back up configuration before changing it.
+
 ## Startup prerequisites
 
 On Linux, configure rootless Podman and a working systemd user manager.

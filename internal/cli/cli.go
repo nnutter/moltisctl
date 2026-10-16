@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/fang"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
+
+	"github.com/nnutter/moltisctl/internal/models"
 )
 
 // Application supplies the operations exposed by the command tree.
@@ -15,6 +17,7 @@ type Application interface {
 	Status(context.Context, io.Writer) error
 	Build(context.Context) error
 	Create(context.Context, string) error
+	ConfigureModels(context.Context, string, models.Config) error
 	Delete(context.Context, string) error
 	Update(context.Context, string, string) error
 }
@@ -84,7 +87,7 @@ func New(app Application) *cobra.Command {
 		},
 	}
 	update.Flags().StringVar(&targetImage, "to-image", "", "Explicitly change the saved image reference")
-	root.AddCommand(update)
+	root.AddCommand(update, modelsCommand(app, run))
 	return root
 }
 

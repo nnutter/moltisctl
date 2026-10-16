@@ -9,15 +9,23 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/nnutter/moltisctl/internal/models"
 )
 
 type recordingApp struct {
-	calls []string
-	ctx   context.Context
-	err   error
+	calls       []string
+	ctx         context.Context
+	err         error
+	modelConfig models.Config
 }
 
 func (a *recordingApp) Build(ctx context.Context) error { return a.record(ctx, "build") }
+func (a *recordingApp) ConfigureModels(ctx context.Context, name string, config models.Config) error {
+	a.modelConfig = config
+	return a.record(ctx, "models configure "+name)
+}
+
 func (a *recordingApp) Create(ctx context.Context, name string) error {
 	return a.record(ctx, "create "+name)
 }
