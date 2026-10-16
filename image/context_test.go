@@ -54,6 +54,7 @@ func TestNativeEmbeddedContext(t *testing.T) {
 		Provider: "custom-native", APIURL: "https://provider.invalid/v1", APIType: "openai-responses",
 		APIKey: "native-fixture-key", Names: []string{"native-model"},
 	}))
+	importShelleyFixture(t, home)
 	spec := cr.Spec{Name: id, Image: tag, Home: home, Port: port}
 	for generation := range 2 {
 		require.NoError(t, adapter.Ensure(t.Context(), spec))

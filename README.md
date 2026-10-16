@@ -119,6 +119,59 @@ It stores provider keys in that file with mode 0600, not in lifecycle records or
 Tools in the instance can read those keys.
 Keep key source files private and back up configuration before changing it.
 
+## Import models from shelleyctl
+
+Import saved Shelley model connections instead of entering their endpoints and keys again:
+
+```sh
+# Source and destination use the same instance name.
+moltisctl models import-shelleyctl alice
+moltisctl create alice
+
+# Select a different source instance or Shelley state directory.
+moltisctl models import-shelleyctl alice \
+  --from christy \
+  --shelley-state-dir "/absolute/path/to/shelleyctl"
+```
+
+`NAME` is the destination Moltis instance.
+`--from` defaults to `NAME`.
+The source directory defaults to `SHELLEYCTL_STATE_DIR`, then the normal shelleyctl state location for the current platform.
+The Moltis `--state-dir` flag selects only the destination state directory.
+No host `sqlite3` executable is required.
+
+The importer reads the source's recorded persistent `shelley.db` through a read-only SQLite connection, including committed WAL data.
+The source can be running or retained after deletion.
+Do not copy its active database without the associated WAL files.
+The importer does not run Shelley, modify its saved models, or contact a model provider.
+
+The destination must be new or deleted, with no leftover container.
+For an existing Moltis instance, run `moltisctl delete NAME` first.
+Do not delete the source Shelley instance merely to import its models.
+Import leaves the Moltis instance inactive until an explicit `create`.
+
+Models with the same saved endpoint, API format, and key become one Moltis provider with a deduplicated model list.
+Different credentials or API formats remain separate providers.
+A Meta connection imports when Shelley records it as `openai` (Chat Completions) or `openai-responses`.
+The importer copies the saved URL and model names rather than choosing a Meta preset.
+It rejects the whole import if any model uses another API format, lacks an explicit endpoint or key, or contains invalid connection settings.
+It also rejects empty sources, unsupported schemas, and unrecorded source instances.
+
+Imported names use the prefix `custom-shelleyctl-` and an identifier derived from the source instance name and a saved model ID.
+They do not contain API keys or key-derived fingerprints.
+Repeated imports of an unchanged source merge without duplicates.
+Matching destination connections retain their tuning and additional model names.
+Conflicting endpoints, credentials, API formats, or disabled providers cause the entire import to fail before changing destination configuration or lifecycle state.
+For deliberate credential replacement, use `models configure --provider IMPORTED_NAME` while the Moltis instance is inactive.
+Removing or regrouping source models can produce different provider names, and import never deletes old destination providers.
+
+The import copies connection settings and model names only.
+It does not copy conversations, default-model selection, display names, token limits, tags, or reasoning and image settings.
+It extends an existing Moltis provider allowlist when needed.
+Keys remain sensitive plaintext in the destination's mode-0600 `moltis.toml`, subject to the same access limits as manual provider configuration.
+The atomic rewrite preserves unrelated TOML values, but not comments or formatting.
+Back up destination configuration before importing.
+
 ## Startup prerequisites
 
 On Linux, configure rootless Podman and a working systemd user manager.
