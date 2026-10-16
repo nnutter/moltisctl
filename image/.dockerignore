@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!entrypoint.sh
+!user-guidance.md
+!nginx.conf
+!services.sh
+!moltis-site
+!moltis-site-skill.md
+!moltis-transcribe
