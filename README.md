@@ -22,6 +22,22 @@ Before creation, define `svc:moltis-alice` in the Tailscale admin console with a
 Grant the intended user access to that service.
 Approve the deployment host for that service after creation.
 The CLI manages only the local Serve endpoint, not service definitions, approval, or access policy.
+Tailscale permissions are additive, so remove or narrow broad grants that would also permit access to these services.
+Test both an allowed client and a denied client.
+
+For example, merge this grant into the existing tailnet policy rather than replacing the whole policy:
+
+```json
+{
+  "grants": [
+    {
+      "src": ["alice@example.com"],
+      "dst": ["svc:moltis-alice"],
+      "ip": ["tcp:443"]
+    }
+  ]
+}
+```
 
 Open the URL from `status` to complete Moltis onboarding.
 Retrieve the setup code from `podman logs moltisctl-alice` on Linux or `container logs moltisctl-alice` on macOS.
@@ -42,9 +58,17 @@ Updates require an image built or pulled locally and replace the container while
 Deletion disables startup and removes the container and its owned network, but retains the home and instance record.
 Use the same name with `create` to reuse retained data.
 There is no automatic permanent-data deletion or backup.
+For a consistent backup, delete the instance to stop it and disable recovery, copy its retained home and `state.json`, then create it again.
+Do not copy an active SQLite database without its associated WAL files.
+
+Names contain at most 40 lowercase letters, digits, or hyphens, starting with a letter and ending with a letter or digit.
+Containers and networks use `moltisctl-<name>`, and services use `svc:moltis-<name>`.
+Backend ports come from 19000–29999 and remain in the instance record after deletion.
 
 The image pins Moltis 20260913.02 by its multi-platform registry digest.
 Rebuilding does not select a newer upstream Moltis release or replace existing containers.
+Use `--image REFERENCE build` to build a custom tag, then `update NAME --to-image REFERENCE` to select it explicitly.
+Back up retained data before updates that can migrate Moltis's databases.
 Moltis listens on HTTP port 9000 inside the container, published only to a stable host loopback port.
 Host Tailscale Serve terminates HTTPS.
 Each instance has its own container network and separate Moltis resource names and ownership labels.
@@ -98,8 +122,25 @@ Keep key source files private and back up configuration before changing it.
 ## Startup prerequisites
 
 On Linux, configure rootless Podman and a working systemd user manager.
-Enable lingering for the owning account if recovery must run without a login session.
-On macOS, start Apple's container services, install its recommended kernel, and approve Local Network access.
+Enable lingering for the owning account if recovery must run without a login session:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+This can require administrator approval.
+Keep Podman's trusted image signature policy configured.
+If Podman cannot locate its existing policy, select it with `MOLTISCTL_SIGNATURE_POLICY=/absolute/path/to/policy.json`.
+The CLI does not generate a permissive policy.
+
+On macOS, start Apple's container services and install its recommended kernel:
+
+```sh
+container system start
+container system kernel set --recommended
+```
+
+Approve macOS Local Network access when prompted.
 Startup recovery uses a launchd LaunchAgent and requires a GUI login session.
 Both platforms reconcile active instances approximately every 30 seconds.
 A current host-side Tailscale client, MagicDNS, HTTPS, and permission to configure Serve are required.
@@ -107,6 +148,8 @@ A current host-side Tailscale client, MagicDNS, HTTPS, and permission to configu
 ## Validation
 
 ```sh
+mise run all
+# Or run the core checks directly:
 go test -race -shuffle=on ./...
 go vet ./...
 # Builds the embedded image and tests native creation and replacement.
@@ -114,4 +157,9 @@ go vet ./...
 MOLTISCTL_TEST_NATIVE=1 go test -v ./image -run TestNativeEmbeddedContext
 ```
 
+Use `--plain` to disable interactive progress.
+Generate shell completions with `moltisctl completion <shell>`.
+Help and completion do not issue lifecycle commands.
+
+See [port scope and validation](docs/port-validation.md) for upstream contracts, native test results, and remaining deployment checks.
 The local `shelleyctl/` directory is an ignored reference copy, not part of this tool.
