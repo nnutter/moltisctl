@@ -1,0 +1,28 @@
+[tools]
+go = "1.27.2"
+
+[tasks.all]
+description = "Run tests and static checks"
+run = [{ task = "test" }, { task = "lint" }]
+
+[tasks.test]
+description = "Run shuffled tests with the race detector"
+run = "go test -race -shuffle=on ./..."
+
+[tasks.lint]
+description = "Check Go code and patch whitespace"
+run = [
+  "go vet ./...",
+  "go tool staticcheck ./...",
+  "go tool errcheck ./...",
+  "go tool testifylint ./...",
+  "git diff --check",
+]
+
+[tasks.format]
+description = "Format project Go files without changing the reference copy"
+run = "gofmt -w cmd internal image"
+
+[tasks.test-native]
+description = "Build and test the embedded image with the native runtime"
+run = "MOLTISCTL_TEST_NATIVE=1 go test -count=1 -v ./image -run TestNativeEmbeddedContext"
