@@ -224,6 +224,35 @@ func (a *Adapter) Start(ctx context.Context, name string) error {
 	return err
 }
 
+// Stop stops a validated managed container without removing it or its network.
+// Success requires observing the same container stopped, even if the CLI fails.
+func (a *Adapter) Stop(ctx context.Context, name string) error {
+	c, err := a.lookup(ctx, name)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return fmt.Errorf("container %q does not exist: create it first", name)
+	}
+	if err := c.validateSaved(); err != nil {
+		return err
+	}
+	if err := validateNetwork(ctx, a, c.name); err != nil {
+		return err
+	}
+	if !c.running {
+		return nil
+	}
+	_, err = a.command(ctx, "stop", c.id)
+	if a.stopCompleted(ctx, name, c.id) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("container %q was not confirmed stopped", name)
+}
+
 func (a *Adapter) command(ctx context.Context, args ...string) ([]byte, error) {
 	// #nosec G702 -- New restricts the executable to podman or container; arguments are passed without a shell.
 	cmd := exec.CommandContext(ctx, a.binary, args...)
@@ -349,6 +378,14 @@ func (a *Adapter) removalCompleted(ctx context.Context, name string) bool {
 		return false
 	}
 	return latest == nil
+}
+
+func (a *Adapter) stopCompleted(ctx context.Context, name, id string) bool {
+	latest, err := a.lookup(ctx, name)
+	if err != nil || latest == nil {
+		return false
+	}
+	return latest.id == id && !latest.running && latest.validateSaved() == nil
 }
 
 func (a *Adapter) startCompleted(ctx context.Context, name, id string) bool {

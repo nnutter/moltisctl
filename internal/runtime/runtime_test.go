@@ -201,17 +201,18 @@ func unsafeNetworkFixture(json, mismatch string) string {
 }
 
 func TestRefuseUnsafeContainer(t *testing.T) {
-	// All three mutation methods must reject independently: a guard only in
-	// Ensure cannot protect direct Start or Remove calls.
+	// Every mutation must reject independently: a guard only in Ensure
+	// cannot protect direct Start, Stop, or Remove calls.
 	for _, platform := range []string{"linux", "darwin"} {
 		for _, mismatch := range []string{"foreign", "image", "home", "port", "readonly", "extra-port", "labels", "network", "extra-network"} {
 			t.Run(platform+"/"+mismatch, func(t *testing.T) {
 				json := unsafeFixture(platform, mismatch)
 				replies := append(query(platform, json), query(platform, json)...)
 				replies = append(replies, query(platform, json)...)
+				replies = append(replies, query(platform, json)...)
 				a, done := fakeCLI(t, platform, replies)
 				spec := runtime.Spec{Name: "demo", Image: "localhost/moltisctl:latest", Home: "/tmp/home space", Port: 19000}
-				for _, err := range []error{a.Ensure(t.Context(), spec), a.Start(t.Context(), "demo"), a.Remove(t.Context(), "demo")} {
+				for _, err := range []error{a.Ensure(t.Context(), spec), a.Start(t.Context(), "demo"), a.Stop(t.Context(), "demo"), a.Remove(t.Context(), "demo")} {
 					require.ErrorContains(t, err, "refuse")
 				}
 				done()
@@ -332,6 +333,16 @@ func mutationScenario(t *testing.T, platform, operation string, completed bool) 
 		}
 		replies = append(replies, query(platform, json)...)
 		invoke = func(a *runtime.Adapter) error { return a.Start(t.Context(), "demo") }
+	case "stop":
+		failed.args = []string{"stop", id}
+		replies = query(platform, running(platform, json))
+		replies = append(replies, networkQuery(platform, networkFixture(platform))...)
+		replies = append(replies, failed)
+		if !completed {
+			json = running(platform, json)
+		}
+		replies = append(replies, query(platform, json)...)
+		invoke = func(a *runtime.Adapter) error { return a.Stop(t.Context(), "demo") }
 	case "remove":
 		failed.args = []string{remove, "--force", id}
 		replies = query(platform, json)
@@ -353,7 +364,7 @@ func mutationScenario(t *testing.T, platform, operation string, completed bool) 
 
 func TestMutationFailuresAndConcurrentCompletion(t *testing.T) {
 	for _, platform := range []string{"linux", "darwin"} {
-		for _, operation := range []string{"create", "start", "remove"} {
+		for _, operation := range []string{"create", "start", "stop", "remove"} {
 			for _, completed := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/completed=%t", platform, operation, completed), func(t *testing.T) {
 					replies, invoke := mutationScenario(t, platform, operation, completed)
