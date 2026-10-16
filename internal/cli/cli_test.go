@@ -14,13 +14,19 @@ import (
 )
 
 type recordingApp struct {
-	calls       []string
-	ctx         context.Context
-	err         error
-	modelConfig models.Config
+	calls         []string
+	ctx           context.Context
+	err           error
+	modelConfig   models.Config
+	shelleySource models.ShelleySource
 }
 
 func (a *recordingApp) Build(ctx context.Context) error { return a.record(ctx, "build") }
+func (a *recordingApp) ImportShelleyModels(ctx context.Context, name string, source models.ShelleySource) error {
+	a.shelleySource = source
+	return a.record(ctx, "models import-shelleyctl "+name)
+}
+
 func (a *recordingApp) ConfigureModels(ctx context.Context, name string, config models.Config) error {
 	a.modelConfig = config
 	return a.record(ctx, "models configure "+name)

@@ -83,6 +83,24 @@ func modelsCommand(app Application, run commandRunner) *cobra.Command {
 		},
 	}
 	options.bind(cmd)
-	parent.AddCommand(cmd)
+	var source models.ShelleySource
+	importer := &cobra.Command{
+		Use:   "import-shelleyctl NAME",
+		Short: "Import saved Shelley models into a new or deleted Moltis instance",
+		Long:  "Import OpenAI-compatible custom models and API keys from a shelleyctl instance. The source is read-only. The destination must be new or deleted. Conversations, the default model, and Shelley-specific tuning are not imported.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			selected := source
+			if selected.Name == "" {
+				selected.Name = args[0]
+			}
+			return run(cmd, func(ctx context.Context) error {
+				return app.ImportShelleyModels(ctx, args[0], selected)
+			})
+		},
+	}
+	importer.Flags().StringVar(&source.Name, "from", "", "Source Shelley instance name (defaults to NAME)")
+	importer.Flags().StringVar(&source.StateDir, "shelley-state-dir", "", "Absolute shelleyctl state directory (defaults to SHELLEYCTL_STATE_DIR or the platform default)")
+	parent.AddCommand(cmd, importer)
 	return parent
 }

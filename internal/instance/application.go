@@ -103,6 +103,19 @@ func (a *Application) Build(ctx context.Context) (result error) {
 	return a.containers.Build(ctx, a.opts.Image, dir)
 }
 
+// ImportShelleyModels converts saved Shelley connections without starting or
+// exposing the destination. Source errors cannot change destination state.
+func (a *Application) ImportShelleyModels(ctx context.Context, name string, source models.ShelleySource) error {
+	if !namePattern.MatchString(name) {
+		return errors.New("invalid instance name")
+	}
+	configs, err := models.ReadShelley(ctx, source)
+	if err != nil {
+		return err
+	}
+	return a.configureModels(ctx, name, func(home string) error { return models.Import(home, configs) })
+}
+
 // ConfigureModels prepares an offline instance, without starting or exposing it.
 // Requiring a deleted record prevents races with Moltis and scheduled recovery.
 func (a *Application) ConfigureModels(ctx context.Context, name string, config models.Config) error {
@@ -153,12 +166,13 @@ func (a *Application) configureModels(ctx context.Context, name string, configur
 	if err := os.MkdirAll(filepath.Dir(home), 0o700); err != nil {
 		return err
 	}
-	// Persist the allocation without credentials or a desired-running intent.
-	s.Instances[name] = r
-	if err := a.save(s); err != nil {
+	// Reject invalid configuration or import conflicts before writing state.
+	if err := configure(home); err != nil {
 		return err
 	}
-	return configure(home)
+	// Persist the allocation without credentials or a desired-running intent.
+	s.Instances[name] = r
+	return a.save(s)
 }
 
 // Create records intent before side effects. Failures retain state for retry.

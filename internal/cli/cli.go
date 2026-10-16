@@ -18,6 +18,7 @@ type Application interface {
 	Build(context.Context) error
 	Create(context.Context, string) error
 	ConfigureModels(context.Context, string, models.Config) error
+	ImportShelleyModels(context.Context, string, models.ShelleySource) error
 	Delete(context.Context, string) error
 	Update(context.Context, string, string) error
 }
