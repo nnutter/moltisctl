@@ -53,6 +53,12 @@ func Configure(home string, c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
+	return configure(home, func(providers map[string]any) error {
+		return configureProvider(providers, c)
+	})
+}
+
+func configure(home string, update func(map[string]any) error) error {
 	dir := home
 	for _, part := range []string{"", ".config", "moltis"} {
 		dir = filepath.Join(dir, part)
@@ -73,6 +79,17 @@ func Configure(home string, c Config) error {
 	if err != nil {
 		return err
 	}
+	if err := update(providers); err != nil {
+		return err
+	}
+	data, err := toml.Marshal(doc)
+	if err != nil {
+		return errors.New("cannot encode Moltis configuration")
+	}
+	return publish(dir, path, data)
+}
+
+func configureProvider(providers map[string]any, c Config) error {
 	provider, err := table(providers, c.Provider)
 	if err != nil {
 		return err
@@ -99,11 +116,7 @@ func Configure(home string, c Config) error {
 			providers["offered"] = append(offered, c.Provider)
 		}
 	}
-	data, err := toml.Marshal(doc)
-	if err != nil {
-		return errors.New("cannot encode Moltis configuration")
-	}
-	return publish(dir, path, data)
+	return nil
 }
 
 func table(doc map[string]any, name string) (map[string]any, error) {
