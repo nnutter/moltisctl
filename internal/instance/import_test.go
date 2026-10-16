@@ -29,13 +29,13 @@ func importSource(t *testing.T) (models.ShelleySource, *sql.DB) {
 }
 
 func TestImportShelleyUsesOfflineLifecycleAndKeepsFailuresUnchanged(t *testing.T) {
-	for _, scenario := range []string{"new", "retained", "active", "conflict", "invalid source"} {
+	for _, scenario := range []string{"new", "retained", "missing active", "conflict", "invalid source"} {
 		t.Run(scenario, func(t *testing.T) {
 			source, db := importSource(t)
 			var actions []string
 			a := testApplication(t, func(action string) error { actions = append(actions, action); return nil })
 			if scenario != "new" {
-				seed(t, a, 19123, scenario == "active")
+				seed(t, a, 19123, scenario == "missing active")
 			}
 			home := filepath.Join(a.opts.StateDir, "instances", "demo", "home")
 			configPath := filepath.Join(home, ".config", "moltis", "moltis.toml")
@@ -74,8 +74,8 @@ func TestImportShelleyUsesOfflineLifecycleAndKeepsFailuresUnchanged(t *testing.T
 				if scenario == "conflict" {
 					require.ErrorContains(t, err, "conflicts")
 				}
-				if scenario == "active" {
-					require.ErrorContains(t, err, "delete the instance")
+				if scenario == "missing active" {
+					require.ErrorContains(t, err, "container is missing")
 				}
 				if scenario == "invalid source" {
 					require.ErrorContains(t, err, "unsupported")

@@ -45,6 +45,7 @@ func (r *runtimeStub) Inspect(context.Context, string) (cr.Status, error) {
 
 func (r *runtimeStub) Remove(context.Context, string) error { return r.action("remove container") }
 func (r *runtimeStub) Start(context.Context, string) error  { return r.action("start container") }
+func (r *runtimeStub) Stop(context.Context, string) error   { return r.action("stop container") }
 
 type exposureStub struct{ action func(string) error }
 

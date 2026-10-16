@@ -58,6 +58,7 @@ type containerRuntime interface {
 	Inspect(context.Context, string) (cr.Status, error)
 	Ensure(context.Context, cr.Spec) error
 	Start(context.Context, string) error
+	Stop(context.Context, string) error
 	Remove(context.Context, string) error
 }
 type exposure interface {
@@ -103,8 +104,8 @@ func (a *Application) Build(ctx context.Context) (result error) {
 	return a.containers.Build(ctx, a.opts.Image, dir)
 }
 
-// ImportShelleyModels converts saved Shelley connections without starting or
-// exposing the destination. Source errors cannot change destination state.
+// ImportShelleyModels converts saved Shelley connections, briefly stopping a
+// running destination. Source errors cannot change destination state.
 func (a *Application) ImportShelleyModels(ctx context.Context, name string, source models.ShelleySource) error {
 	if !namePattern.MatchString(name) {
 		return errors.New("invalid instance name")
@@ -113,7 +114,7 @@ func (a *Application) ImportShelleyModels(ctx context.Context, name string, sour
 	if err != nil {
 		return err
 	}
-	return a.configureModels(ctx, name, func(home string) error { return models.Import(home, configs) })
+	return a.configureModels(ctx, name, true, func(home string) error { return models.Import(home, configs) })
 }
 
 // ConfigureModels prepares an offline instance, without starting or exposing it.
@@ -125,10 +126,10 @@ func (a *Application) ConfigureModels(ctx context.Context, name string, config m
 	if err := config.Validate(); err != nil {
 		return err
 	}
-	return a.configureModels(ctx, name, func(home string) error { return models.Configure(home, config) })
+	return a.configureModels(ctx, name, false, func(home string) error { return models.Configure(home, config) })
 }
 
-func (a *Application) configureModels(ctx context.Context, name string, configure func(string) error) (result error) {
+func (a *Application) configureModels(ctx context.Context, name string, importing bool, configure func(string) error) (result error) {
 	if err := a.prepare(); err != nil {
 		return err
 	}
@@ -142,7 +143,10 @@ func (a *Application) configureModels(ctx context.Context, name string, configur
 		return err
 	}
 	r, exists := s.Instances[name]
-	if exists && (r.Desired || r.PendingImage != "") {
+	if importing && r.PendingImage != "" {
+		return errors.New("finish the pending instance update before importing models")
+	}
+	if !importing && exists && (r.Desired || r.PendingImage != "") {
 		return errors.New("delete the instance before configuring models, or use Moltis's authenticated UI for live changes")
 	}
 	if !exists {
@@ -160,7 +164,23 @@ func (a *Application) configureModels(ctx context.Context, name string, configur
 		return err
 	}
 	if status.Exists {
-		return errors.New("repeat delete to remove the container before configuring models")
+		if !importing || !r.Desired {
+			return errors.New("repeat delete to remove the container before configuring models")
+		}
+		if status.Running {
+			// Register recovery before attempting Stop: a failed or cancelled
+			// native call can still have stopped the container. Keep the lock
+			// until restoration finishes, including on import failure.
+			defer func() { result = errors.Join(result, a.restartAfterImport(ctx, r)) }()
+			if err := a.containers.Stop(ctx, name); err != nil {
+				return fmt.Errorf("stop instance before import: %w", err)
+			}
+		}
+	} else if importing && r.Desired {
+		return errors.New("active instance container is missing; repeat create before importing models")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	home := filepath.Join(a.opts.StateDir, "instances", name, "home")
 	if err := os.MkdirAll(filepath.Dir(home), 0o700); err != nil {
@@ -170,9 +190,31 @@ func (a *Application) configureModels(ctx context.Context, name string, configur
 	if err := configure(home); err != nil {
 		return err
 	}
-	// Persist the allocation without credentials or a desired-running intent.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if exists {
+		return nil // Preserve the original lifecycle record and desired state.
+	}
+	// Persist a new allocation without credentials or desired-running intent.
 	s.Instances[name] = r
 	return a.save(s)
+}
+
+func (a *Application) restartAfterImport(ctx context.Context, r record) error {
+	// Cancellation must not strand a container that this command stopped.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	defer cancel()
+	if err := a.containers.Check(ctx, a.recordSpec(r)); err != nil {
+		return fmt.Errorf("verify instance before restart after import: %w", err)
+	}
+	if err := a.containers.Start(ctx, r.Name); err != nil {
+		return fmt.Errorf("restart instance after import: %w", err)
+	}
+	if err := ready(ctx, r.Port); err != nil {
+		return fmt.Errorf("backend not ready after import: %w", err)
+	}
+	return nil
 }
 
 // Create records intent before side effects. Failures retain state for retry.

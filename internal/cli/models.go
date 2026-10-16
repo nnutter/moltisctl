@@ -86,8 +86,8 @@ func modelsCommand(app Application, run commandRunner) *cobra.Command {
 	var source models.ShelleySource
 	importer := &cobra.Command{
 		Use:   "import-shelleyctl NAME",
-		Short: "Import saved Shelley models into a new or deleted Moltis instance",
-		Long:  "Import OpenAI-compatible custom models and API keys from a shelleyctl instance. The source is read-only. The destination must be new or deleted. Conversations, the default model, and Shelley-specific tuning are not imported.",
+		Short: "Import saved Shelley models, pausing a running destination",
+		Long:  "Import OpenAI-compatible custom models and API keys from a shelleyctl instance. The source is read-only. A running destination is stopped briefly and restarted, including after import failure. New or already-stopped instances are not started. Conversations, the default model, and Shelley-specific tuning are not imported.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			selected := source

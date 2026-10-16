@@ -7,7 +7,7 @@ import (
 
 // Import merges a batch without replacing a conflicting provider connection.
 // Validation and conflict checks finish before the atomic TOML publication.
-// The caller must prevent concurrent execution and disable scheduled recovery.
+// The caller must prevent concurrent execution, including scheduled recovery.
 func Import(home string, configs []Config) error {
 	if len(configs) == 0 {
 		return errors.New("no providers to import")
