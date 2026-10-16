@@ -105,13 +105,17 @@ func (a *Application) Build(ctx context.Context) (result error) {
 
 // ConfigureModels prepares an offline instance, without starting or exposing it.
 // Requiring a deleted record prevents races with Moltis and scheduled recovery.
-func (a *Application) ConfigureModels(ctx context.Context, name string, config models.Config) (result error) {
+func (a *Application) ConfigureModels(ctx context.Context, name string, config models.Config) error {
 	if !namePattern.MatchString(name) {
 		return errors.New("invalid instance name")
 	}
 	if err := config.Validate(); err != nil {
 		return err
 	}
+	return a.configureModels(ctx, name, func(home string) error { return models.Configure(home, config) })
+}
+
+func (a *Application) configureModels(ctx context.Context, name string, configure func(string) error) (result error) {
 	if err := a.prepare(); err != nil {
 		return err
 	}
@@ -154,7 +158,7 @@ func (a *Application) ConfigureModels(ctx context.Context, name string, config m
 	if err := a.save(s); err != nil {
 		return err
 	}
-	return models.Configure(home, config)
+	return configure(home)
 }
 
 // Create records intent before side effects. Failures retain state for retry.
